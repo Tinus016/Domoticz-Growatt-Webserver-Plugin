@@ -1,38 +1,40 @@
 ########################################################################################
-# 	Growatt Inverter Python Plugin for Domoticz                                   	   #
+#   Growatt Inverter Python Plugin for Domoticz                                        #
 #                                                                                      #
-# 	MIT License                                                                        #
+#   MIT License                                                                        #
 #                                                                                      #
-#	Copyright (c) 2018 tixi                                                            #
+#   Copyright (c) 2018 tixi                                                            #
 #                                                                                      #
-#	Permission is hereby granted, free of charge, to any person obtaining a copy       #
-#	of this software and associated documentation files (the "Software"), to deal      #
-#	in the Software without restriction, including without limitation the rights       #
-#	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell          #
-#	copies of the Software, and to permit persons to whom the Software is              #
-#	furnished to do so, subject to the following conditions:                           #
+#   Permission is hereby granted, free of charge, to any person obtaining a copy       #
+#   of this software and associated documentation files (the "Software"), to deal      #
+#   in the Software without restriction, including without limitation the rights       #
+#   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell          #
+#   copies of the Software, and to permit persons to whom the Software is              #
+#   furnished to do so, subject to the following conditions:                           #
 #                                                                                      #
-#	The above copyright notice and this permission notice shall be included in all     #
-#	copies or substantial portions of the Software.                                    #
+#   The above copyright notice and this permission notice shall be included in all     #
+#   copies or substantial portions of the Software.                                    #
 #                                                                                      #
-#	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR         #
-#	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,           #
-#	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE        #
-#	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER             #
-#	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,      #
-#	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE      #
-#	SOFTWARE.                                                                          #
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR         #
+#   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,           #
+#   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE        #
+#   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER             #
+#   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,      #
+#   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE      #
+#   SOFTWARE.                                                                          #
 #                                                                                      #
-#   Author: sincze                                                                     #
+#   Original Author: sincze                                                            #
+#   Eddited by M de Boer (Tinus016 at GittHub)                                         #
 #                                                                                      #
 #   This plugin will read the status from the running inverter via the webservice.     #
 #                                                                                      #
 #   V 1.0.0. Initial Release (25-08-2019)                                              #
+#   V 1.0.1. Co2 counter and Alarm switch added 12-03-2022 by MBR (Tinus016)           # 
 ########################################################################################
 
 
 """
-<plugin key="GrowattWeb" name="Growatt Web Inverter" author="sincze" version="1.0.0" externallink="https://github.com/sincze/Domoticz-Growatt-Webserver-Plugin">
+<plugin key="GrowattWeb" name="Growatt Web Inverter" author="Sincze eddited by Tinus016" version="1.0.1" externallink="https://github.com/sincze/Domoticz-Growatt-Webserver-Plugin">
     <description>
         <h2>Retrieve available Growatt Inverter information from the webservice</h2><br/>        
     </description>
@@ -67,7 +69,6 @@ try:
     import hashlib
     import json
     import re               # Needed to extract data from Some JSON result
-    import urllib.parse     # Needed to encode request body messages
 
     local = False
 except ImportError:
@@ -146,14 +147,11 @@ class BasePlugin:
         if (Status == 0):
             Domoticz.Debug("Growatt connected successfully.")            
             password=Parameters["Mode3"]
-            password_md5 = hashlib.md5(password.encode("utf-8")).hexdigest()
-            for i in range(0, len(password_md5), 2):
-                if password_md5[i] == "0":
-                    password_md5 = password_md5[0:i] + "c" + password_md5[i + 1 :]
+            password=hashlib.md5(str.encode(password))
             sendData = { 'Verb' : 'POST',
                          'URL'  : '/newTwoLoginAPI.do',
                          'Headers' : self.apiRequestHeaders(),
-                         'Data': "password="+password_md5+"&userName="+urllib.parse.quote_plus(Parameters["Mode2"])
+                         'Data': "password="+password.hexdigest()+"&userName="+Parameters["Mode2"]
                          }
             Domoticz.Debug("Step 1. Login SendData: "+str(sendData))
             Connection.Send(sendData)
@@ -190,12 +188,17 @@ class BasePlugin:
                 elif ('powerValue' in apiResponse):
                     current = apiResponse['powerValue']
                     total = apiResponse['totalValue']
-                    coal = apiResponse['formulaCoalValue']
-                    sValue=str(current)+";"+str( float(total)*1000 )                # Convert kWh to Wh
+                    co2 = apiResponse['formulaCo2Vlue']
+                    alarm = apiResponse['alarmValue']
+                    sValue=str(current)+";"+str( float(total)*1000)                 # Convert kWh to Wh
                     Domoticz.Log("Currently producing: "+str(current)+" Watt. Totall produced: "+str(total)+" kWh in Wh that is: "+str(float(total)*1000) )
                     UpdateDevice(Unit=1, nValue=0, sValue=sValue, TimedOut=0)
                     UpdateDevice(Unit=2, nValue=0, sValue=current, TimedOut=0)
-                    UpdateDevice(Unit=4, nValue=0, sValue=coal, TimeOut=0)
+                    UpdateDevice(Unit=4, nValue=0, sValue=co2, TimedOut=0)
+                    if (alarm == 1):
+                        UpdateDevice(Unit=5, nValue=1, sValue="On", TimedOut=0)         # Inverter has an Alarm
+                    else:
+                        UpdateDevice(Unit=5, nValue=0, sValue="Off", TimedOut=0)         # Inverter has no Alarm
                 else:
                     Domoticz.Debug("Not received anything usefull!")
             except KeyError:
@@ -369,5 +372,7 @@ def createDevices():
         Domoticz.Log("Inverter Device (W) created.")
         Domoticz.Device(Name="Inverter Status", Unit=3, TypeName="Switch", Used=1, Image=image).Create()
         Domoticz.Log("Inverter Device (Switch) created.")
-        Domoticz.Device(Name="Inverter (Coal)", Unit=4, TypeName="Counter", Used=1).Create()
-        Domoticz.Log("Inverter (Coal) created.")
+        Domoticz.Device(Name="Inverter (Co2)", Unit=4, TypeName="Custom", Used=1).Create()
+        Domoticz.Log("Inverter Device (Co2) created.")
+        Domoticz.Device(Name="Inverter Alarm", Unit=5, TypeName="Switch", Used=1, Image=image).Create()
+        Domoticz.Log("Inverter Device (Switch) created.")
