@@ -189,11 +189,13 @@ class BasePlugin:
                         Connection.Send(self.apiRequestHeaders_cookie() )                    
                 elif ('powerValue' in apiResponse):
                     current = apiResponse['powerValue']
-                    total = apiResponse['totalValue']                               # Convert kWh to Wh
-                    sValue=str(current)+";"+str( float(total)*1000 )
+                    total = apiResponse['totalValue']
+                    coal = apiResponse['formulaCoalValue']
+                    sValue=str(current)+";"+str( float(total)*1000 )                # Convert kWh to Wh
                     Domoticz.Log("Currently producing: "+str(current)+" Watt. Totall produced: "+str(total)+" kWh in Wh that is: "+str(float(total)*1000) )
                     UpdateDevice(Unit=1, nValue=0, sValue=sValue, TimedOut=0)
-                    UpdateDevice(Unit=2, nValue=0, sValue=current, TimedOut=0)              
+                    UpdateDevice(Unit=2, nValue=0, sValue=current, TimedOut=0)
+                    UpdateDevice(Unit=4, nValue=0, sValue=coal, TimeOut=0)
                 else:
                     Domoticz.Debug("Not received anything usefull!")
             except KeyError:
@@ -367,3 +369,5 @@ def createDevices():
         Domoticz.Log("Inverter Device (W) created.")
         Domoticz.Device(Name="Inverter Status", Unit=3, TypeName="Switch", Used=1, Image=image).Create()
         Domoticz.Log("Inverter Device (Switch) created.")
+        Domoticz.Device(Name="Inverter (Coal)", Unit=4, TypeName="Counter", Used=1).Create()
+        Domoticz.Log("Inverter (Coal) created.")
