@@ -29,12 +29,14 @@
 #   This plugin will read the status from the running inverter via the webservice.     #
 #                                                                                      #
 #   V 1.0.0. Initial Release (25-08-2019)                                              #
-#   V 1.0.1. Co2 counter and Alarm switch added 12-03-2022 by MBR (Tinus016)           # 
+#   V 1.0.1. Co2 counter and Alarm switch added 12-03-2022 by MBR (Tinus016)           #
+#   V 1.0.2. Changed line 226 runAgain from 6 to 18 because of locking issues          #
+#            Cleaned up the code And added check of locking account                    #
 ########################################################################################
 
 
 """
-<plugin key="GrowattWeb" name="Growatt Web Inverter" author="Sincze eddited by Tinus016" version="1.0.1" externallink="https://github.com/sincze/Domoticz-Growatt-Webserver-Plugin">
+<plugin key="GrowattWeb" name="Growatt Web Inverter" author="Sincze eddited by Tinus016" version="1.0.2" externallink="https://github.com/tinus016/Domoticz-Growatt-Webserver-Plugin">
     <description>
         <h2>Retrieve available Growatt Inverter information from the webservice</h2><br/>        
     </description>
@@ -98,7 +100,7 @@ class BasePlugin:
             'Connection': 'keep-alive',
             'Host': 'server-api.growatt.com',
             'User-Agent': 'Domoticz/1.0',
-            'Accept-Encoding': 'gzip'
+#            'Accept-Encoding': 'gzip'
         }
     
     def apiRequestHeaders_cookie(self): # Needed headers for Data retrieval
@@ -109,25 +111,11 @@ class BasePlugin:
                           'Connection': 'keep-alive',
                           'Host': 'server-api.growatt.com',
                           'User-Agent': 'Domoticz/1.0',
-                          'Accept-Encoding': 'gzip',
+#                          'Accept-Encoding': 'gzip',
                           'Cookie': ['JSESSIONID='+self.sessionId, 'SERVERID='+self.serverId]
                         },
             'Data': "plantId="+str(self.plantId)+"&language=1"
         }
-
-# Future use
-#    def apiRequestHeaders_serialnumber(self):
-#        return {
-#            'Verb': 'GET',
-#            'URL': "/newTwoPlantAPI.do?op=getAllDeviceList&plantId="+str(self.plantId)+"&content=",
-#            'Headers' : { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',                         
-#                          'Connection': 'keep-alive',
-#                          'Host': 'server-api.growatt.com',
-#                          'User-Agent': 'Domoticz/1.0',
-#                          'Accept-Encoding': 'gzip',
-#                          'Cookie': ['JSESSIONID='+self.sessionId, 'SERVERID='+self.serverId]
-#                        },
-#        }
     
     def onStart(self):
         if Parameters["Mode6"] != "0":
@@ -176,11 +164,12 @@ class BasePlugin:
             Domoticz.Debug("Retrieved following json: "+json.dumps(apiResponse))
             
             try:
-                if ('back' in apiResponse):              
-                #if not ['back']['success']:
-                #    Domoticz.Log("Login Failed")
-                #elif ('back' in apiResponse):                  
+                if ('back' in apiResponse):                 
                     Domoticz.Log("Login Succesfull")
+                    if ('msg' in apiResponse['back']):
+                        msg = apiResponse['back']['msg']
+                        if (msg == "507"):
+                            Domoticz.Error("Login succesful but account locked")
                     self.plantId = apiResponse["back"]["data"][0]["plantId"]
                     Domoticz.Log("Plant ID: "+str(self.plantId)+" was found")
                     self.ProcessCookie(Data)                                        # The Cookie is in the RAW Response, not in the JSON
@@ -209,11 +198,15 @@ class BasePlugin:
                 Domoticz.Debug("No defined keys found!")
             
         elif (Status == 400):
-            Domoticz.Error("Google returned a Bad Request Error.")
+            Domoticz.Error("Bad Request.")
         elif (Status == 500):
-            Domoticz.Error("Google returned a Server Error.")
+            Domoticz.Error("External Server Error.")
+        elif (Status == 502):
+            Domoticz.Error("Bad Gateway.")
+        elif (Status == 504):
+            Domoticz.Error("Gateway Timeout.")
         else:
-            Domoticz.Error("Google returned a status: "+str(Status))
+            Domoticz.Error("Error Returned a status: "+str(Status))
 
     def onCommand(self, Unit, Command, Level, Hue):
         Domoticz.Debug("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level))
@@ -222,7 +215,6 @@ class BasePlugin:
         Domoticz.Log("onDisconnect called for connection to: "+Connection.Address+":"+Connection.Port)
 
     def onHeartbeat(self):
-        #Domoticz.Trace(True)
         if (self.httpConn != None and (self.httpConn.Connecting() or self.httpConn.Connected())):
             Domoticz.Debug("onHeartbeat called, Connection is alive.")
         else:
@@ -231,11 +223,9 @@ class BasePlugin:
                 if (self.httpConn == None):
                     self.httpConn = Domoticz.Connection(Name=self.sProtocol+" Test", Transport="TCP/IP", Protocol=self.sProtocol, Address=Parameters["Address"], Port=Parameters["Mode1"])
                 self.httpConn.Connect()
-                self.runAgain = 6
+                self.runAgain = 18
             else:
                 Domoticz.Debug("onHeartbeat called, run again in "+str(self.runAgain)+" heartbeats.")
-        #Domoticz.Trace(False)
-
 
     def ProcessCookie(self, httpDict):
         if isinstance(httpDict, dict):            
@@ -346,6 +336,8 @@ def UpdateDevice(Unit, nValue, sValue, TimedOut=0, AlwaysUpdate=False):
         if (Devices[Unit].nValue != nValue) or (Devices[Unit].sValue != sValue) or (Devices[Unit].TimedOut != TimedOut):
             Devices[Unit].Update(nValue=nValue, sValue=str(sValue), TimedOut=TimedOut)
             Domoticz.Log("Update "+str(nValue)+":'"+str(sValue)+"' ("+Devices[Unit].Name+")")
+        else:
+            Domoticz.Log("No update performed for "+Devices[Unit].Name)
     return
 
 
@@ -361,11 +353,6 @@ def createDevices():
         Domoticz.Image("Growatt.zip").Create()
         image = Images["Growatt"].ID # Get id from database
         Domoticz.Log( "Image created. ID: " + str( image ) )
-
-    # Are there any devices?
-    ###if len(Devices) != 0:
-        # Could be the user deleted some devices, so do nothing
-        ###return
 
     # Give the devices a unique unit number. This makes updating them more easy.
     # UpdateDevice() checks if the device exists before trying to update it.
