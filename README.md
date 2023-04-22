@@ -8,7 +8,7 @@ This verion includes also C02 reduction counter and a inverter alarm switch.
 
 ## ONLY TESTED FOR Raspberry Pi
 
-With Python version 3.7.3. & Domoticz V2022.1
+With Python version 3.7.3. & Domoticz V2023.1
 
 
 ## Installation
